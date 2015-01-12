@@ -1,10 +1,16 @@
 from Bottle import *
 import sqlite3
-datoteka_baze = "Podjetje.sqlite"
+import hashlib
+datoteka_baze = "Podjetje"
 baza = sqlite3.connect(datoteka_baze,isolation_level=None)
-
+########################################################
+#                                                      #
+# Prve tri funkcije so osnovne, in racunajo            #
+# Promet podjetja, stroske, in nazadnje seveda         #
+# zaslužek, ki ga je ustvarilo.                        #
+########################################################
 def izracunajPromet():
-    #Za začetek izračunajmo dosedanji promet podjetja
+   
     ''' Vrne dosedanji promet podjetja.'''
     with baza:
         baza.execute("""SELECT SUM(cena) FROM racuni""")
@@ -24,7 +30,7 @@ def prometOdStranke(stranka):
     #join glede na tabeli stranke in izdani racuni.
     '''Vrne promet, ki ga je podjetje imelo od določene stranke.'''
     with baza:
-        baza.execute('''SELECT racuni.id,racuni.cena,racuni.datum
+        baza.execute('''SELECT racuni.id_racuna,racuni.cena,racuni.datum
                         FROM racuni
                         JOIN stranke ON stranke.id = racuni.id_stranke
                         WHERE ime LIKE ?%''',[stranka])
@@ -40,23 +46,42 @@ def izdaniRacuni(datum):
     with baza:
         baza.execute('''SELECT racuni.id,racuni.cena,racuni.datum
                         FROM racuni
-                        JOIN stranke ON stranke.id = racuni.id_stranke
+                        JOIN stranke ON stranke.id_stranke = racuni.id_stranke
                         WHERE datum > ?%''',[datum])
-        return baza.fetchall()
-def dodajRacun(ime_stranke,cena,ddv,datum):
-    '''V bazo dodamo nov račun'''   
-    
-    def dobiIDstranke(ime_stranke):
-        with baza:
-            baza.execute('SELECT id_stranke FROM stranke WHERE ime_stranke = ime')
-            return baza.fetchone()
-    id_stranke = dobiIDstranke(ime_stranke)
-    c = baza.cursor()
-    c.execute('''INSERT INTO racuni (id_stranke, cena, ddv, datum) VALUES (?, ?)''', [id_stranke, cena, ddv, datum])
-    c.close()
-    id_racuna = c.lastrowid 
-    return id_racuna
 
+
+        return baza.fetchall()
+
+
+########################################################
+#                                                      #
+# Tukaj se nahajajo funkcije, ki vstavljajo            #
+# različne podatke v našo bazo.                        #
+# Nove uporabnike, racune, prodane artikle ...         #
+########################################################
+    
+def dodajNakup(seznamArtiklov):
+    #seznamArtiklov vsebuje naravna števila, ki so ID-ji artiklov    
+    '''V bazo dodamo nov račun in prodane artikle'''
+    for i in seznamArtiklov:
+        c = baza.cursor()
+        c.execute('''INSERT INTO prodani_artikli (artikel,cena,ddv) VALUES (SELECT id, cena, ddv FROM artikli WHERE id = ?)''', [artikel])
+        c.close()        
+        id_artikla = c.lastrowid  
+        return id_artikla
+    for i in seznamArtiklov:
+        pass
+        
+    
+    
+    
+def dodajArtikel(artikel,cena,ddv):
+    '''V bazo dodamo uporabnika: njegovo uporabniško ime in zakodirano geslo'''
+    c = baza.cursor()
+    c.execute('''INSERT INTO artikli (artikel,cena,ddv) VALUES (?,?,?)''', [artikel,cena,ddv])
+    c.close()
+    id_artikla = c.lastrowid  
+    return id_artikla
 def dodaj_strosek(vrsta_stroska, cena, ddv, datum):
 
     '''V bazo dodamo uporabnika: njegovo uporabniško ime in zakodirano geslo'''
@@ -65,28 +90,22 @@ def dodaj_strosek(vrsta_stroska, cena, ddv, datum):
     c.close()
     id_stroska = c.lastrowid 
     return id_stroska
-###########################################################################################################
-#Spodaj se nahajajo funkcije, ki poskrbijo, da lahko preverjamo pristnost uporabnikov, ter po možnosti v bazo dodajamo
-#nove uporabnike.
-def zakodiraj(geslo):
-    return hashlib.md5(geslo.encode()).hexdigest()
+#######################################################################################################################
+#Spodaj se nahajajo funkcije, ki poskrbijo, da lahko preverjamo verodostojnost uporabnikov, katerih dostopna          #
+#Uporabniška imena in gesla se nahajajo v podatkovni bazi                                                             #
+#######################################################################################################################
+def zakodiraj(password):
+    return hashlib.md5(password.encode()).hexdigest()
 
-def dodaj_uporabnika(up_ime, geslo):
+def dodaj_uporabnika(username, password):
 
     '''V bazo dodamo uporabnika: njegovo uporabniško ime in zakodirano geslo'''
     c = baza.cursor()
-    c.execute('''INSERT INTO uporabniki (up_ime, geslo) VALUES (?, ?)''', [up_ime, zakodiraj(geslo)])
+    c.execute('''INSERT INTO uporabniki (username, password) VALUES (?, ?)''', [username, zakodiraj(password)])
     c.close()
     id_uporabnika = c.lastrowid  
     return id_uporabnika
 
-def preveri_geslo(up_ime, geslo):
-    '''Preveri èe je v bazi uporabnik z podanim uporabniškim imenom in podanim geslom'''
-    with baza:
-        baza.execute('''SELECT id FROM uporabniki WHERE up_ime = ? AND geslo = ?''', [up_ime, zakodiraj(geslo)])
-        id_uporabnika = baza.fetchone()
-        if id_uporabnika is None: 
-            raise Exception('vnešeno uporabniško ime ali geslo je napacno')
 
 
 
@@ -110,11 +129,12 @@ def login():
         </center>
     '''
 def check_login(username,password):
-    if username == 'Jan' and password == 'Potocnik':
-        #tukaj bo potrebno pogledati, če se ujema s kakim parom iz baze uporabnikov.
-        return True
-    else:
-        return False
+    '''Preveri èe je v bazi uporabnik z podanim uporabniškim imenom in podanim geslom'''
+    with baza:
+        cur = baza.execute('''SELECT id_uporabnika FROM uporabniki WHERE username = ? AND password = ?''', [username, zakodiraj(password)])
+        id_uporabnika = cur.fetchone()
+        return id_uporabnika is not None
+
 @post('/login') # or @route('/login', method='POST')
 def do_login():
     username = request.forms.get('username')
